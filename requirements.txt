@@ -1,0 +1,4 @@
+pulsectl
+playsound
+PyGObject
+pynput
