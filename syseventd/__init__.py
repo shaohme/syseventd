@@ -15,6 +15,7 @@ PULSE = pulsectl.Pulse(__name__, threading_lock=True)
 
 VOL_STEP = 0.03
 
+
 def _on_switch_sink():
     srv_info = PULSE.server_info()
     def_sink_name = srv_info.default_sink_name
@@ -35,7 +36,7 @@ def _on_switch_sink():
     for sink_input in sink_input_list:
         PULSE.sink_input_move(sink_input.index, next_sink.index)
     logging.info("moved all sink")
-    for i in range(0,2):
+    for i in range(0, 2):
         playsound("/usr/share/sounds/freedesktop/stereo/dialog-warning.oga")
 
 
@@ -73,6 +74,18 @@ def _on_toggle_mute():
         logging.error("unknown mute state, '%d", default_sink.mute)
 
 
+def _on_toggle_mic_mute():
+    srv_info = PULSE.server_info()
+    def_source_name = srv_info.default_source_name
+    default_source = PULSE.get_source_by_name(def_source_name)
+    if default_source.mute == 0:
+        PULSE.mute(default_source, True)
+    elif default_source.mute == 1:
+        PULSE.mute(default_source, False)
+    else:
+        logging.error("unknown mute state, '%d", default_source.mute)
+
+
 def _on_release(key):
     key_dec = "{0}".format(key)
 
@@ -85,6 +98,9 @@ def _on_release(key):
     elif "269025042" in key_dec:
         logging.info("toggle mute")
         _on_toggle_mute()
+    elif "269025202" in key_dec:
+        logging.info("toggle mic mute")
+        _on_toggle_mic_mute()
 
 
 def main():
