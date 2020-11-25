@@ -1,12 +1,12 @@
 [Unit]
-Description=Keyboard input event daemon
-Requires=pulseaudio.service
+Description=System event daemon
 After=pulseaudio.service
 
 [Service]
-Type=simple
 WorkingDirectory=/home/%u/.virtualenvs/syseventd
 ExecStart=/home/%u/.virtualenvs/syseventd/bin/syseventd
+Restart=on-failure
+RestartSec=1s
 
 [Install]
 WantedBy=multi-user.target
