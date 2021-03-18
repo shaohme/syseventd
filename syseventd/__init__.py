@@ -1,20 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import os
-import sys
-import pulsectl
+import os.path
 import signal
 import logging
-import os.path
-from pprint import pprint
+import pulsectl
 from playsound import playsound
-import inspect
-import threading
-import subprocess
 from dasbus.loop import EventLoop
 from dasbus.server.interface import dbus_interface
-from dasbus.typing import Str
-from dasbus.xml import XMLGenerator
 from dasbus.identifier import DBusServiceIdentifier
 from dasbus.connection import SessionMessageBus
 from gi.repository import GLib
@@ -64,7 +57,7 @@ def _send_notify(icon_name, urgency_level, body):
         "syseventd",            # title
         body,                   # message
         [],                     # action list
-        {"urgency": GLib.Variant.new_byte(urgency_level)}, # hints
+        {"urgency": GLib.Variant.new_byte(urgency_level)},  # hints
         2000                    # notification wait in milliseconds
     )
     logging.info("send notify. got id %d" % (id))
