@@ -3,59 +3,80 @@
 import os
 import sys
 import pulsectl
+import signal
 import logging
+import os.path
 from pprint import pprint
 from playsound import playsound
-from pynput import keyboard
 import inspect
 import threading
 import subprocess
+from dasbus.loop import EventLoop
+from dasbus.server.interface import dbus_interface
+from dasbus.typing import Str
+from dasbus.xml import XMLGenerator
+from dasbus.identifier import DBusServiceIdentifier
+from dasbus.connection import SessionMessageBus
+from gi.repository import GLib
+
 
 logging.basicConfig(level=logging.INFO)
 
 PULSE = pulsectl.Pulse(__name__, threading_lock=False)
-MAIN_EVENT = threading.Event()
 EX_CODE = os.EX_OK
 
 VOL_STEP = 0.03
 
+SESSION_BUS = SessionMessageBus()
 
-def _exec_notify_send(urg, body, event):
-    cmd = ["notify-send", "-u", urg, __name__, body]
-    subprocess.check_output(cmd)
-    event.set()
+SYSEVENTD = DBusServiceIdentifier(
+    namespace=("net", "cephalopo", "Syseventd"),
+    message_bus=SESSION_BUS
+)
+
+NOTIFICATION_PROXY = SESSION_BUS.get_proxy(
+    "org.freedesktop.Notifications",
+    "/org/freedesktop/Notifications"
+)
+
+LOOP = EventLoop()
 
 
-def _send_notify(urg, body, block=False):
-    event = threading.Event()
-    try:
-        thread = threading.Thread(target=_exec_notify_send(urg, body, event))
-        thread.name = __name__
-        thread.start()
-        if block:
-            thread.join(timeout=10)
-            return event.is_set()
-        return event
-    except Exception:
-        logging.exception("Unhandled exception for sending notification.")
-        raise
+def term_handler(signum, frame):
+    print('Signal handler called with signal', signum)
+    if LOOP:
+        LOOP.quit()
+    else:
+        print("no loop to quit")
+
+
+signal.signal(signal.SIGTERM, term_handler)
+signal.signal(signal.SIGINT, term_handler)
+
+
+# icon names without URI path should be according to
+# https://specifications.freedesktop.org/icon-naming-spec/icon-naming-spec-latest.html
+def _send_notify(icon_name, urgency_level, body):
+    id = NOTIFICATION_PROXY.Notify(
+        "syseventd",            # application name
+        0,                      # 'id_num_to_repl'
+        icon_name,              # icon name
+        "syseventd",            # title
+        body,                   # message
+        [],                     # action list
+        {"urgency": GLib.Variant.new_byte(urgency_level)}, # hints
+        2000                    # notification wait in milliseconds
+    )
+    logging.info("send notify. got id %d" % (id))
 
 
 def log_warn(msg: str):
     logging.warn(msg)
-    _send_notify("critical", msg)
+    _send_notify("dialog-warning", 2, msg)
 
 
 def notify_info(msg: str):
-    _send_notify("low", msg)
-
-
-def _exit_error(msg):
-    logging.error(msg)
-    global EX_CODE
-    EX_CODE = os.EX_SOFTWARE
-    _send_notify("critical", msg)
-    MAIN_EVENT.set()
+    _send_notify("dialog-information", 0, msg)
 
 
 def print_events(ev):
@@ -63,7 +84,7 @@ def print_events(ev):
     # en = pulsectl.PulseEventFacilityEnum
     # if ev.facility == en.sink_input:
     # print('Pulse event: fac=%s, index=%s, t=%s' % (ev.facility, ev.index, ev.t))
-    ### Raise PulseLoopStop for event_listen() to return before timeout (if any)
+    # Raise PulseLoopStop for event_listen() to return before timeout (if any)
     # raise pulsectl.PulseLoopStop
 
 
@@ -96,26 +117,30 @@ def _on_switch_sink():
     notify_info("sink switched: %s" % next_sink.name)
 
 
+# if volume event comes from a particular USB device it should only
+# alter that particular device volume
 def _on_volume_up():
-    srv_info = PULSE.server_info()
-    def_sink_name = srv_info.default_sink_name
-    default_sink = PULSE.get_sink_by_name(def_sink_name)
-    default_sink_vols = PULSE.volume_get_all_chans(default_sink)
-    new_vol = default_sink_vols + VOL_STEP
-    if new_vol > 1.000:
-        new_vol = 1.000
-    PULSE.volume_set_all_chans(default_sink, new_vol)
+    for sink in PULSE.sink_list():
+        if sink.proplist['alsa.driver_name'] == 'snd_usb_audio':
+            default_sink_vols = PULSE.volume_get_all_chans(sink)
+            new_vol = default_sink_vols + VOL_STEP
+            if new_vol > 1.000:
+                new_vol = 1.000
+            PULSE.volume_set_all_chans(sink, new_vol)
+        else:
+            logging.info("ignoring non-usb device, %s" % (sink.name))
 
 
 def _on_volume_down():
-    srv_info = PULSE.server_info()
-    def_sink_name = srv_info.default_sink_name
-    default_sink = PULSE.get_sink_by_name(def_sink_name)
-    default_sink_vols = PULSE.volume_get_all_chans(default_sink)
-    new_vol = default_sink_vols - VOL_STEP
-    if new_vol < 0.000:
-        new_vol = 0.000
-    PULSE.volume_set_all_chans(default_sink, new_vol)
+    for sink in PULSE.sink_list():
+        if sink.proplist['alsa.driver_name'] == 'snd_usb_audio':
+            default_sink_vols = PULSE.volume_get_all_chans(sink)
+            new_vol = default_sink_vols - VOL_STEP
+            if new_vol < 0.000:
+                new_vol = 0.000
+            PULSE.volume_set_all_chans(sink, new_vol)
+        else:
+            logging.info("ignoring non-usb device, %s" % (sink.name))
 
 
 def _on_toggle_mute():
@@ -142,41 +167,49 @@ def _on_toggle_mic_mute():
         logging.error("unknown mute state, '%d", default_source.mute)
 
 
-def _on_release(key):
-    key_dec = "{0}".format(key)
-    try:
-        if "269025043" in key_dec:
+@dbus_interface(SYSEVENTD.interface_name)
+class Syseventd(object):
+    """The DBus interface"""
+
+    def Volume(self, change: int):
+        if change == 1:
             logging.info("volume up")
             _on_volume_up()
-        elif "269025041" in key_dec:
-            logging.info("volume down")
-            _on_volume_down()
-        elif "269025042" in key_dec:
+        elif change == 0:
             logging.info("toggle mute")
             _on_toggle_mute()
-        elif "269025202" in key_dec:
-            logging.info("toggle mic mute")
-            _on_toggle_mic_mute()
-    except:
-        _exit_error("key error")
+        elif change == -1:
+            logging.info("volume down")
+            _on_volume_down()
+        else:
+            logging.warn("unknown volume signal: %d" % (change))
+
+    def MicrophoneToggle(self):
+        logging.info("toggle mic mute")
+        _on_toggle_mic_mute()
+
+    def SwitchSoundCard(self):
+        logging.info("switch sound card")
+        _on_switch_sink()
 
 
 def main():
-    hotkey_listener = keyboard.GlobalHotKeys(
-        {"<cmd>+<shift>+a": _on_switch_sink})
-    hotkey_listener.start()
+    # print(XMLGenerator.prettify_xml(Syseventd.__dbus_xml__))
 
-    key_listener = keyboard.Listener(on_release=_on_release)
-    key_listener.start()
-    # TODO: listen on pulse events and move newly created sink inputs
-    # to default if not targetting default
-    # PULSE.event_mask_set('all')
-    # PULSE.event_callback_set(print_events)
-    # PULSE.event_listen()
-    # key_listener.join()
-    _send_notify("low", "started")
-    MAIN_EVENT.wait()
-    logging.info("main event set")
+    try:
+        hello_world = Syseventd()
 
-    PULSE.close()
-    sys.exit(EX_CODE)
+        # Publish the instance
+        SESSION_BUS.publish_object(SYSEVENTD.object_path, hello_world)
+
+        # Register the service
+        SESSION_BUS.register_service(SYSEVENTD.service_name)
+
+        notify_info("started")
+        # _send_notify("dialog-info", 1, "started")
+        # Start the event loop.
+        LOOP.run()
+    finally:
+        # Unregister the DBus service and objects.
+        SESSION_BUS.disconnect()
+        PULSE.close()

@@ -1,4 +1,4 @@
 pulsectl
 playsound
 PyGObject
-pynput
+dasbus
