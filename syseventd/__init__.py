@@ -110,30 +110,36 @@ def _on_switch_sink():
     notify_info("sink switched: %s" % next_sink.name)
 
 
-# if volume event comes from a particular USB device it should only
-# alter that particular device volume
+# ignore volume attempts on: alsa_output.pci-0000_0b_00.4.analog-stereo
+# it should handle volume via hardware
+ignored_device_names = ('alsa_output.pci-0000_0b_00.4.analog-stereo')
+
+def _volume():
+    default_sink_vols = PULSE.volume_get_all_chans(sink)
+    new_vol = default_sink_vols + VOL_STEP
+    if new_vol > 1.000:
+        new_vol = 1.000
+    PULSE.volume_set_all_chans(sink, new_vol)
+
+
 def _on_volume_up():
     for sink in PULSE.sink_list():
-        if sink.proplist['alsa.driver_name'] == 'snd_usb_audio':
-            default_sink_vols = PULSE.volume_get_all_chans(sink)
-            new_vol = default_sink_vols + VOL_STEP
-            if new_vol > 1.000:
-                new_vol = 1.000
-            PULSE.volume_set_all_chans(sink, new_vol)
+        if sink.name in ignored_device_names:
+            logging.info("ignoring device, %s" % (sink.name))
         else:
-            logging.info("ignoring non-usb device, %s" % (sink.name))
+
 
 
 def _on_volume_down():
     for sink in PULSE.sink_list():
-        if sink.proplist['alsa.driver_name'] == 'snd_usb_audio':
+        if sink.name in ignored_device_names:
+            logging.info("ignoring device, %s" % (sink.name))
+        else:
             default_sink_vols = PULSE.volume_get_all_chans(sink)
             new_vol = default_sink_vols - VOL_STEP
             if new_vol < 0.000:
                 new_vol = 0.000
             PULSE.volume_set_all_chans(sink, new_vol)
-        else:
-            logging.info("ignoring non-usb device, %s" % (sink.name))
 
 
 def _on_toggle_mute():
