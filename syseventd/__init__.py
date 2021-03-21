@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import os
 import os.path
+import math
 import signal
 import logging
 import pulsectl
@@ -114,32 +115,28 @@ def _on_switch_sink():
 # it should handle volume via hardware
 ignored_device_names = ('alsa_output.pci-0000_0b_00.4.analog-stereo')
 
-def _volume():
-    default_sink_vols = PULSE.volume_get_all_chans(sink)
-    new_vol = default_sink_vols + VOL_STEP
-    if new_vol > 1.000:
-        new_vol = 1.000
-    PULSE.volume_set_all_chans(sink, new_vol)
-
-
-def _on_volume_up():
-    for sink in PULSE.sink_list():
-        if sink.name in ignored_device_names:
-            logging.info("ignoring device, %s" % (sink.name))
-        else:
-
-
-
-def _on_volume_down():
+def _volume(up):
     for sink in PULSE.sink_list():
         if sink.name in ignored_device_names:
             logging.info("ignoring device, %s" % (sink.name))
         else:
             default_sink_vols = PULSE.volume_get_all_chans(sink)
-            new_vol = default_sink_vols - VOL_STEP
+            if up:
+                new_vol = default_sink_vols + VOL_STEP
+            else:
+                new_vol = default_sink_vols - VOL_STEP
+
+            if new_vol > 1.000:
+                new_vol = 1.000
             if new_vol < 0.000:
                 new_vol = 0.000
             PULSE.volume_set_all_chans(sink, new_vol)
+            xob_file = os.path.join(os.environ['XDG_RUNTIME_DIR'], 'xob')
+            if os.path.exists(xob_file):
+                with open(xob_file, "w") as f:
+                    f.write("%d\n" % (math.floor(new_vol * 100)))
+            else:
+                logging.info("no xob file, %s", xob_file)
 
 
 def _on_toggle_mute():
@@ -173,13 +170,13 @@ class Syseventd(object):
     def Volume(self, change: int):
         if change == 1:
             logging.info("volume up")
-            _on_volume_up()
+            _volume(True)
         elif change == 0:
             logging.info("toggle mute")
             _on_toggle_mute()
         elif change == -1:
             logging.info("volume down")
-            _on_volume_down()
+            _volume(False)
         else:
             logging.warn("unknown volume signal: %d" % (change))
 
