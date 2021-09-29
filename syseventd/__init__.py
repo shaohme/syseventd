@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import os
+import sys
 import os.path
 import math
 import signal
 import logging
 import pulsectl
+import dasbus
 from playsound import playsound
 from dasbus.loop import EventLoop
 from dasbus.server.interface import dbus_interface
@@ -92,7 +94,7 @@ def _on_switch_sink():
         if sink.name == def_sink_name:
             continue
         next_sink = sink
-    if next_sink == None:
+    if next_sink is None:
         log_warn("no different sink from default")
         return
     logging.info("default sink name: %s" % def_sink_name)
@@ -114,6 +116,7 @@ def _on_switch_sink():
 # ignore volume attempts on: alsa_output.pci-0000_0b_00.4.analog-stereo
 # it should handle volume via hardware
 ignored_device_names = ('alsa_output.pci-0000_0b_00.4.analog-stereo')
+
 
 def _volume(up):
     srv_info = PULSE.server_info()
@@ -205,8 +208,11 @@ def main():
 
         # Register the service
         SESSION_BUS.register_service(SYSEVENTD.service_name)
-
-        notify_info("started")
+        try:
+            notify_info("started")
+        except dasbus.error.DBusError as err:
+            logging.error("DBUS error, '%s'", err)
+            sys.exit(16)
         # _send_notify("dialog-info", 1, "started")
         # Start the event loop.
         LOOP.run()
