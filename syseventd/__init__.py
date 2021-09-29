@@ -37,6 +37,9 @@ NOTIFICATION_PROXY = SESSION_BUS.get_proxy(
 
 LOOP = EventLoop()
 
+XOB_FILE = os.path.join(os.environ['XDG_RUNTIME_DIR'], 'xob')
+WOB_FILE = os.path.join(os.environ['XDG_RUNTIME_DIR'], 'wob')
+
 
 def term_handler(signum, frame):
     print('Signal handler called with signal', signum)
@@ -138,12 +141,14 @@ def _volume(up):
         if new_vol < 0.000:
             new_vol = 0.000
         PULSE.volume_set_all_chans(default_sink, new_vol)
-        xob_file = os.path.join(os.environ['XDG_RUNTIME_DIR'], 'xob')
-        if os.path.exists(xob_file):
-            with open(xob_file, "w") as f:
+        if os.path.exists(XOB_FILE):
+            with open(XOB_FILE, "w") as f:
+                f.write("%d\n" % (math.floor(new_vol * 100)))
+        elif os.path.exists(WOB_FILE):
+            with open(WOB_FILE, "w") as f:
                 f.write("%d\n" % (math.floor(new_vol * 100)))
         else:
-            logging.info("no xob file, %s", xob_file)
+            logging.info("no xob file '%s' or wob file '%s'", XOB_FILE, WOB_FILE)
         playsound("/usr/share/sounds/freedesktop/stereo/audio-volume-change.oga")
 
 
