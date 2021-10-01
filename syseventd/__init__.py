@@ -38,7 +38,7 @@ NOTIFICATION_PROXY = SESSION_BUS.get_proxy(
 LOOP = EventLoop()
 
 XOB_FILE = os.path.join(os.environ['XDG_RUNTIME_DIR'], 'xob')
-WOB_FILE = os.path.join(os.environ['XDG_RUNTIME_DIR'], 'wob')
+WOB_FILE = os.path.join(os.environ['XDG_RUNTIME_DIR'], 'wob.sock')
 
 
 def term_handler(signum, frame):
