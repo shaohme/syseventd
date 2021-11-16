@@ -148,8 +148,9 @@ def _volume(up):
             with open(WOB_FILE, "w") as f:
                 f.write("%d\n" % (math.floor(new_vol * 100)))
         else:
-            logging.info("no xob file '%s' or wob file '%s'", XOB_FILE, WOB_FILE)
-        playsound("/usr/share/sounds/freedesktop/stereo/audio-volume-change.oga")
+            logging.info("no xob file '%s' or wob file '%s'",
+                         XOB_FILE, WOB_FILE)
+        playsound("/usr/share/sounds/freedesktop/stereo/message.oga")
 
 
 def _on_toggle_mute():
