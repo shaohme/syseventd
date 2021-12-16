@@ -224,5 +224,8 @@ def main():
         LOOP.run()
     finally:
         # Unregister the DBus service and objects.
-        SESSION_BUS.disconnect()
-        PULSE.close()
+        try:
+            # this is most likely during shutdown. ignore errors for now
+            SESSION_BUS.disconnect()
+        finally:
+            PULSE.close()
