@@ -100,6 +100,30 @@ def print_events(ev):
     # Raise PulseLoopStop for event_listen() to return before timeout (if any)
     # raise pulsectl.PulseLoopStop
 
+def _switch_default_sink(pulseses, next_sink):
+    pulseses.sink_default_set(next_sink)
+    srv_info = pulseses.server_info()
+    new_default_sink = pulseses.get_sink_by_name(srv_info.default_sink_name)
+    notify_info("default sink now: %s" % new_default_sink.description)
+    sink_input_list = pulseses.sink_input_list()
+    for sink_input in sink_input_list:
+        try:
+            pulseses.sink_input_move(sink_input.index, next_sink.index)
+        except pulsectl.pulsectl.PulseOperationFailed:
+            log_warn("unable to move sink_input, %s" % (sink_input))
+    logging.info("moved all inputs to new sink")
+    for i in range(0, 2):
+        playsound("/usr/share/sounds/freedesktop/stereo/dialog-warning.oga")
+
+
+def move_all_sources_to_sink_name(name: str):
+    with _pulse_session() as pulseses:
+        # TODO: a race condition can occur from bluez connecting and pulse
+        # registering the new sink, so this might raise
+        # pulsectl.pulsectl.PulseIndexError
+        sink = pulseses.get_sink_by_name(name)
+        _switch_default_sink(pulseses, sink)
+
 
 def _on_switch_sink():
     with _pulse_session() as pulseses:
@@ -117,20 +141,9 @@ def _on_switch_sink():
         if next_sink is None:
             log_warn("no different sink from default")
             return
-        logging.info("default sink name: %s" % def_sink_name)
-        logging.info("next sink: %s" % next_sink.name)
-        pulseses.sink_default_set(next_sink)
-
-        sink_input_list = pulseses.sink_input_list()
-        for sink_input in sink_input_list:
-            try:
-                pulseses.sink_input_move(sink_input.index, next_sink.index)
-            except pulsectl.pulsectl.PulseOperationFailed:
-                log_warn("unable to move sink_input, %s" % (sink_input))
-        logging.info("moved all sink")
-        for i in range(0, 2):
-            playsound("/usr/share/sounds/freedesktop/stereo/dialog-warning.oga")
-        notify_info("default sink now: %s" % next_sink.description)
+        logging.info("default sink name: %s" % default_sink.description)
+        logging.info("next sink: %s" % next_sink.description)
+        _switch_default_sink(pulseses, next_sink)
 
 
 # ignore volume attempts on: alsa_output.pci-0000_0b_00.4.analog-stereo
@@ -144,7 +157,7 @@ def _volume(up):
         def_sink_name = srv_info.default_sink_name
         default_sink = pulseses.get_sink_by_name(def_sink_name)
         if default_sink.name in ignored_device_names:
-            logging.info("ignoring device, %s" % (default_sink.name))
+            log_warn("ignoring device, %s" % (default_sink.name))
             return
         sink_desc = default_sink.description
 
@@ -185,6 +198,7 @@ def _volume(up):
         # effects on pulse server not closing causing it to block for connections
         # with multiple '[pulseaudio] sink-input.c: Freeing input 283 "Playback
         # Stream"' entries in log
+
         playsound("/usr/share/sounds/freedesktop/stereo/message.oga", block=True)
 
 
@@ -234,6 +248,12 @@ class Syseventd(object):
             _volume(False)
         else:
             logging.warn("unknown volume signal: %d" % (change))
+
+    def MoveAllSourcesToSink(self, sink_name: str):
+        if sink_name:
+            move_all_sources_to_sink_name(sink_name)
+        else:
+            logging.warn("unknown volume signal: %s" % (sink_name))
 
     def MicrophoneToggle(self):
         logging.info("toggle mic mute")
