@@ -104,7 +104,7 @@ def _switch_default_sink(pulseses, next_sink):
     pulseses.sink_default_set(next_sink)
     srv_info = pulseses.server_info()
     new_default_sink = pulseses.get_sink_by_name(srv_info.default_sink_name)
-    notify_info("default sink now: %s" % new_default_sink.description)
+    notify_info("default sink now, %d : %s" % (new_default_sink.index, new_default_sink.description))
     sink_input_list = pulseses.sink_input_list()
     for sink_input in sink_input_list:
         try:
@@ -133,14 +133,43 @@ def _on_switch_sink():
         old_sink_desc = default_sink.description
         notify_info("switching from: %s" % (old_sink_desc))
         sink_list = pulseses.sink_list()
+        if not sink_list:
+            log_warn("no sinks")
+            return
+        # sort by sink index
+        sink_list.sort(key=lambda x: x.index, reverse=False)
         next_sink = None
-        for sink in sink_list:
-            if sink.name == def_sink_name:
-                continue
-            next_sink = sink
+        # find current index in list and start from there
+        indexes = [index for index in range(len(sink_list)) if sink_list[index].name == default_sink.name]
+        if not indexes:
+            log_warn("no default sink found in sink list")
+            return
+        # expect sink list to be unique
+        idx = indexes[0]
+        while next_sink is None:
+            # start by step forward in the sink list
+            idx = idx + 1
+            if idx >= len(sink_list):
+                idx = 0
+            sink = sink_list[idx]
+            # check port state. we should ignore 'unplugged' sinks
+            port_list = sink.port_list
+            for port in port_list:
+                # on some laptop devices PCI card port availability are
+                # observed to have 'unknown' state
+                if port.available in [pulsectl.PulsePortAvailableEnum.yes, pulsectl.PulsePortAvailableEnum.unknown]:
+                    next_sink = sink
+            # probably looped around. we should stop now to avoid endless loop
+            if sink.name == default_sink.name:
+                next_sink = sink
+
         if next_sink is None:
+            log_warn("found no next sink. this should not happen")
+            return
+        if next_sink.index == default_sink.index or next_sink.name == default_sink.name:
             log_warn("no different sink from default")
             return
+
         logging.info("default sink name: %s" % default_sink.description)
         logging.info("next sink: %s" % next_sink.description)
         _switch_default_sink(pulseses, next_sink)
