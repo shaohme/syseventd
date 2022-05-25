@@ -35,8 +35,13 @@ def term_handler(signum, frame):
     print('Signal handler called with signal', signum)
     if SESSION_BUS:
         logging.debug("disconnecting session bus")
-        SESSION_BUS.disconnect()
-        logging.debug("session bus disconnected")
+        try:
+            SESSION_BUS.disconnect()
+            logging.debug("session bus disconnected")
+        except GLib.GError:
+            # fixing GLib.GError: g-dbus-error-quark blindly
+            logging.warn("glib error on disconnect. assuming nothing critical for now")
+            pass
     if LOOP:
         logging.debug("quitting loop")
         LOOP.quit()
